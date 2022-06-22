@@ -17,10 +17,12 @@ threshold=[(0,128),(0,128),(0,128),(0,128),(0,128),(0,128)]#创建阈值变量
 line_cx=[0,0,0,0,0,0]    #记录六个线的x轴点
 line_cy=[0,0,0,0,0,0]    #记录六个线的y轴点
 line_area=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]#记录六个识别块的参数
+angle=0 #
+line_none=0 #记录没有发现黑线段的次数
 
 clock = time.clock()    #声明时钟，用于获取帧速
 
-def get_k(n,dataCol_X,dataRow_Y):  #线性回归求斜率
+def get_k(n,dataCol_X,dataRow_Y,none):  #线性回归求斜率
     k = 0         #斜率
     aveCol_X = 0  #列的平均值x
     aveRow_Y = 0  #行的平均值y
@@ -29,19 +31,27 @@ def get_k(n,dataCol_X,dataRow_Y):  #线性回归求斜率
     sumCol_X = 0  #列的总和x
     sumCol_X2 = 0 #列的总和x^2
     for i in range(0,n):
-       sumCol_X += dataCol_X[i]  #求列x的总和
-       sumRow_Y += dataRow_Y[i]  #求行y的总和
-       sumCol_X2 += dataCol_X[i] * dataCol_X[i] #求x^2的总和
-       sum_XY += (dataCol_X[i] * dataRow_Y[i])  #求xy的总和
-    aveCol_X = float(sumCol_X /n) #求平均值
-    aveRow_Y = float(sumRow_Y /n)
+       if dataRow_Y[i]>-1:
+          sumCol_X += dataCol_X[i]  #求列x的总和
+          sumRow_Y += dataRow_Y[i]  #求行y的总和
+          sumCol_X2 += dataCol_X[i] * dataCol_X[i] #求x^2的总和
+          sum_XY += (dataCol_X[i] * dataRow_Y[i])  #求xy的总和
+    aveCol_X = float(sumCol_X /(n-none)) #求平均值
+    aveRow_Y = float(sumRow_Y /(n-none))
 
-    if(sumCol_X2 - aveCol_X * aveCol_X * n):
+    if(sumCol_X2 - aveCol_X * aveCol_X * (n-none)):
 
-      k = (sum_XY - aveCol_X * aveRow_Y * n) / (sumCol_X2 - aveCol_X * aveCol_X * n) #根据公式求斜率
+      k = (sum_XY - aveCol_X * aveRow_Y * (n-none)) / (sumCol_X2 - aveCol_X * aveCol_X * (n-none)) #根据公式求斜率
     else:
       k=0
     return k
+
+def get_angle(ture,move):  #获取转向角度，+左-右
+    ture_angle=45*ture
+    move_angle=45*(move/160)
+    angle=0.7*ture_angle+0.3*move_angle
+    return angle
+
 
 
 #主循环
@@ -74,6 +84,11 @@ while True:
             line_area[n]=blob.rect()    #记录当前色块所在区域
             line_cx[n]=blob.cx()    #记录色块的中心点
             line_cy[n]=blob.cy()    #记录色块的中心点
+            #在相应位置画方块。
+            img.draw_rectangle(int(line_area[n][0]),int(line_area[n][1]),int(line_area[n][2]),int(line_area[n][3]),color=(255,0,0))
+            if n>0 and line_area[n]!=-1 and line_area[n-1]!=-1:#如果不是第一个点，且前后的点有数据
+                #在识别到的黑线中心画线。
+                img.draw_line(int(line_cx[n]), int(line_cy[n]) , int(line_cx[n-1]) , int(line_cy[n-1]),color=(255,0,0), thickness=2)
             #如果色块宽度在画面宽度的0.375到0.875之间（角度很大的弧线或直角）
             #注：下面数值是以画面一般的数值作为基数计算，所以相对于完整画面，数值在37.5%到87.5%之间。
             if midpoint*0.75<blob.w()<midpoint*1.75:
@@ -81,23 +96,18 @@ while True:
         else:
             line_area[n]=-1 #没有识别到结果装填一个负值，在后文可以判断是否识别到了结果
             line_cx[n]=-1
+            line_cy[n]=-1
+            line_none+=1 #记录没有发现黑线段的次数
 
-    for n in range(6):  #循环6次，分别处理6段的显示
-        if line_area[n]!=-1:    #如果识别结果方块有数据
-            #在相应位置画方块。此处绘制的是屏幕上第二部分，识别结果画面。
-            img.draw_rectangle(int(line_area[n][0]),int(line_area[n][1]),int(line_area[n][2]),int(line_area[n][3]),color=(255,0,0))
-        if n>0 and line_area[n]!=-1 and line_area[n-1]!=-1:#如果不是第一个点，且前后的点有数据
-            #在识别到的黑线中心画线。此处绘制的是屏幕上第二部分，识别结果画面。
-            img.draw_line(int(line_cx[n]), int(line_cy[n]) , int(line_cx[n-1]) , int(line_cy[n-1]),color=(255,0,0), thickness=2)
-
-    line_none=0 #记录没有发现黑线段的次数
-    for n in range(5,-1,-1):
-        if line_cx[n]>-1:  #如果有数值
-           line_move=(line_move+(line_cx[n])) #累加再取平均值
-        else:
-           line_none+=1 #记录没有发现黑线段的次数
     if line_none<=2:
+       for n in range(5,-1,-1):
+           if line_cx[n]>-1:  #如果有数值
+              line_move=(line_move+(line_cx[n])) #累加再取平均值
        line_move=round((-(line_move/(6-line_none)-160)),2)
-       line_ture=round(get_k(6-line_none,line_cy,line_cx),2)
-       print(line_ture,line_move)
-    print(clock.fps())  #打印帧速，方便在编程软件中调试.
+       line_ture=round(get_k(6,line_cy,line_cx,line_none),2)
+       #print(line_ture,line_move)
+       angle=get_angle(line_ture,line_move)
+       print(angle)
+
+#print(clock.fps())  #打印帧速，方便在编程软件中调试.
+
